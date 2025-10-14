@@ -1,0 +1,90 @@
+{
+  "jobs": [
+    {
+      "title": "Boosting your profile increases your chance of getting hired by up to 2x.\n               \n          ",
+      "url": "",
+      "description": "Boosting your profile increases your chance of getting hired by up to 2x.\n               \n                  Win work with a targeted boost\n                 \n    Boost now",
+      "budget": "",
+      "className": "air3-card air3-banner text-on-highlight",
+      "tagName": "DIV",
+      "extracted_at": "2025-10-14T08:32:22.740Z",
+      "source": "universal-dom"
+    },
+    {
+      "title": "Boosted Proposals deliver 10x more earnings on ad spend\n               \n                  Rise to th",
+      "url": "",
+      "description": "Boosted Proposals deliver 10x more earnings on ad spend\n               \n                  Rise to the top of the client's list\n                 \n    Boost now",
+      "budget": "",
+      "className": "air3-card air3-banner text-on-highlight",
+      "tagName": "DIV",
+      "extracted_at": "2025-10-14T08:32:22.740Z",
+      "source": "universal-dom"
+    },
+    {
+      "title": "Learn how to get started on Upwork\n               \n                  Upwork 101 will guide you throu",
+      "url": "",
+      "description": "Learn how to get started on Upwork\n               \n                  Upwork 101 will guide you through the basics of our platform.\n                 \n    Explore Upwork 101",
+      "budget": "",
+      "className": "air3-card air3-banner text-on-highlight",
+      "tagName": "DIV",
+      "extracted_at": "2025-10-14T08:32:22.740Z",
+      "source": "universal-dom"
+    },
+    {
+      "title": "Luka Z.\n       \n      AI/ML | Python Developer | Full-Stack (Django & FastAPI) | Law Graduat\n     \n ",
+      "url": "",
+      "description": "Luka Z.\n       \n      AI/ML | Python Developer | Full-Stack (Django & FastAPI) | Law Graduat\n     \n      Complete your profile\n      \n      100%\n       \n        Complete\n       \n        100%",
+      "budget": "",
+      "className": "air3-card bg-muted-light mb-6x p-6x",
+      "tagName": "DIV",
+      "extracted_at": "2025-10-14T08:32:22.740Z",
+      "source": "universal-dom"
+    },
+    {
+      "title": "Promote with ads\n          \n      Availability badge\n     \n        Off\n         \n      Edit availabi",
+      "url": "",
+      "description": "Promote with ads\n          \n      Availability badge\n     \n        Off\n         \n      Edit availability badge\n           \n        Boost your profile\n        \n        Off\n        \n      Edit boost you",
+      "budget": "",
+      "className": "air3-card bg-muted-light air3-card-sections p-6x mb-6x",
+      "tagName": "DIV",
+      "extracted_at": "2025-10-14T08:32:22.740Z",
+      "source": "universal-dom"
+    },
+    {
+      "title": "Connects:\n          \n            99",
+      "url": "",
+      "description": "Connects:\n          \n            99",
+      "budget": "",
+      "className": "air3-card bg-muted-light air3-card-sections p-6x mb-6x",
+      "tagName": "DIV",
+      "extracted_at": "2025-10-14T08:32:22.740Z",
+      "source": "universal-dom"
+    },
+    {
+      "title": "Preferences\n          \n        Proposals\n          \n        Project Catalog",
+      "url": "",
+      "description": "Preferences\n          \n        Proposals\n          \n        Project Catalog",
+      "budget": "",
+      "className": "air3-card bg-muted-light air3-card-sections p-6x",
+      "tagName": "DIV",
+      "extracted_at": "2025-10-14T08:32:22.740Z",
+      "source": "universal-dom"
+    },
+    {
+      "title": "Direct Contracts\n       \n      Get Paid\n       \n      Help Center",
+      "url": "",
+      "description": "Direct Contracts\n       \n      Get Paid\n       \n      Help Center",
+      "budget": "",
+      "className": "air3-card bg-muted-light my-6x fwh-sidebar-links px-5",
+      "tagName": "DIV",
+      "extracted_at": "2025-10-14T08:32:22.740Z",
+      "source": "universal-dom"
+    }
+  ],
+  "pageInfo": {
+    "title": "Upwork",
+    "url": "https://www.upwork.com/nx/find-work/best-matches",
+    "extracted_at": "2025-10-14T08:32:22.740Z",
+    "source": "page-info"
+  }
+}

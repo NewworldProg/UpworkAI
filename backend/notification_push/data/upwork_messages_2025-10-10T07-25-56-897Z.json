@@ -1,0 +1,53 @@
+{
+  "messages": [
+    {
+      "id": "msg_1760081156890_0",
+      "timestamp": "2025-10-10T07:25:56.890Z",
+      "selector_used": "[class*=\"notification\"] [class*=\"item\"]",
+      "text": "Notifications Notifications",
+      "sender": "Unknown",
+      "preview": "",
+      "messageTime": "",
+      "isRead": true,
+      "conversationId": "",
+      "html": "<button type=\"button\" aria-expanded=\"false\" aria-labelledby=\"nav-notifications-label\" data-cy=\"menu-trigger\" class=\"nav-item\"><span class=\"nav-item-label\"><span id=\"nav-notifications-label\" class=\"nav-d-lg-none\"><!----> Notifications </span><span size=\"md\" aria-hidden=\"true\" class=\"up-s-nav-icon nav-icon\" data-test=\"up-s-nav-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" fill=\"none\" aria-hidden=\"true\" viewBox=\"0 0 24 24\" role=\"img\" data-test=\"notification\"><path vector-effect=\"non-scaling-stroke\"...",
+      "classes": "nav-item",
+      "attributes": "type=\"button\" aria-expanded=\"false\" aria-labelledby=\"nav-notifications-label\" data-cy=\"menu-trigger\" class=\"nav-item\""
+    },
+    {
+      "id": "msg_1760081156890_1",
+      "timestamp": "2025-10-10T07:25:56.890Z",
+      "selector_used": "[class*=\"notification\"] [class*=\"item\"]",
+      "text": "Notifications Notifications",
+      "sender": "Unknown",
+      "preview": "",
+      "messageTime": "",
+      "isRead": true,
+      "conversationId": "",
+      "html": "<span class=\"nav-item-label\"><span id=\"nav-notifications-label\" class=\"nav-d-lg-none\"><!----> Notifications </span><span size=\"md\" aria-hidden=\"true\" class=\"up-s-nav-icon nav-icon\" data-test=\"up-s-nav-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" fill=\"none\" aria-hidden=\"true\" viewBox=\"0 0 24 24\" role=\"img\" data-test=\"notification\"><path vector-effect=\"non-scaling-stroke\" stroke=\"var(--icon-color, #001e00)\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-miterlimit=\"10\" stroke-width=\"1.5\" ...",
+      "classes": "nav-item-label",
+      "attributes": "class=\"nav-item-label\""
+    },
+    {
+      "id": "msg_1760081156890_2",
+      "timestamp": "2025-10-10T07:25:56.890Z",
+      "selector_used": "[class*=\"notification\"] [class*=\"item\"]",
+      "text": "See all notifications",
+      "sender": "Unknown",
+      "preview": "",
+      "messageTime": "",
+      "isRead": true,
+      "conversationId": "",
+      "html": "<a href=\"/ab/notifications/\" class=\"up-n-link nav-menu-item nav-notifications-more\" target=\"_self\" data-cy=\"menu-item-trigger\" data-test=\"UpLink\"><span><strong>See all notifications</strong></span><!----></a>...",
+      "classes": "up-n-link nav-menu-item nav-notifications-more",
+      "attributes": "href=\"/ab/notifications/\" class=\"up-n-link nav-menu-item nav-notifications-more\" target=\"_self\" data-cy=\"menu-item-trigger\" data-test=\"UpLink\""
+    }
+  ],
+  "pageInfo": {
+    "url": "https://www.upwork.com/nx/search/jobs",
+    "timestamp": "2025-10-10T07:25:56.893Z",
+    "totalMessages": 3,
+    "source": "logged-in-chrome"
+  },
+  "extractedAt": "2025-10-10T07:25:56.897Z"
+}
