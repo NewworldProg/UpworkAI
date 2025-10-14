@@ -9,6 +9,67 @@ const puppeteerCore = require('puppeteer-core');
 const fs = require('fs').promises;
 // in variable put path library
 const path = require('path');
+// Add http module for API calls
+const http = require('http');
+
+//================================ 🚀 Direct Database Save Function ==============================
+
+async function saveMessagesToDatabase(messagesData, pageInfo) {
+    try {
+        if (!messagesData || messagesData.length === 0) {
+            console.log('⚠️ No messages to save');
+            return { success: true, saved: 0 };
+        }
+
+        const postData = JSON.stringify({
+            messages: messagesData,
+            pageInfo: pageInfo,
+            timestamp: new Date().toISOString()
+        });
+
+        const options = {
+            hostname: 'localhost',
+            port: 8000,
+            path: '/api/messages/save-messages/',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(postData)
+            }
+        };
+
+        return new Promise((resolve, reject) => {
+            const req = http.request(options, (res) => {
+                let data = '';
+                res.on('data', (chunk) => {
+                    data += chunk;
+                });
+                res.on('end', () => {
+                    if (res.statusCode === 200 || res.statusCode === 201) {
+                        const response = JSON.parse(data);
+                        console.log(`✅ Successfully saved ${response.data?.saved_messages || messagesData.length} messages to database`);
+                        resolve({ success: true, response: response });
+                    } else {
+                        console.error(`❌ API request failed with status ${res.statusCode}: ${data}`);
+                        reject(new Error(`HTTP ${res.statusCode}: ${data}`));
+                    }
+                });
+            });
+
+            req.on('error', (err) => {
+                console.error('❌ API request error:', err.message);
+                reject(err);
+            });
+
+            req.write(postData);
+            req.end();
+        });
+
+    } catch (error) {
+        console.error('❌ Could not save messages to database:', error.message);
+        throw error;
+    }
+}
 
 //================================ 🗨️ Message Scraper Functions ==============================
 
@@ -52,63 +113,89 @@ async function extractMessagesFromLoggedInChrome() {
     try {
         // in variable pages put browser.pages() input all open pages/tabs in the browser
         const pages = await browser.pages();
-        console.log(`📄 Found ${pages.length} open tabs`);        // make dict to store page URLs and titles
-        // index key and page info as value
+        console.log(`📄 Found ${pages.length} open tabs`);
+        
+        // variable to hold the target page
+        let targetPage = null;
+        
+        // Function to check if URL is a messages page
+        const isMessagesPage = (url) => {
+            return url.includes('upwork.com') && 
+                (url.includes('/ab/messages') ||
+                 url.includes('/messages/rooms') ||
+                 url.includes('/messages/') ||
+                 url.includes('/nx/message'));
+        };
+        
+        // List all tabs for debugging
         for (const [index, page] of pages.entries()) {
             try {
                 const url = page.url();
                 const title = await page.title();
                 console.log(`Tab ${index}: ${title} - ${url}`);
             } catch (e) {
-                console.log(`Tab ${index}: [Error getting info]`);
+                console.log(`Tab ${index}: Error reading tab - ${e.message}`);
             }
         }
-
-        let targetPage = null;
         
-        // for loop to Find active Upwork page
+        // First try to find active messages page
         for (const page of pages) {
             try {
-                // in variable url put page.url()
                 const url = page.url();
                 console.log(`🔍 Checking page: ${url}`);
-                // if in url there is 'upwork.com'
-                if (url.includes('upwork.com')) {
-                    const isVisible = await page.evaluate(() => !document.hidden);
-                    console.log(`📋 Page visible: ${isVisible}`);
-                    
-                    if (isVisible) {
-                        targetPage = page;
-                        console.log('✅ Found active Upwork tab');
-                        break;
-                    }
+                
+                const isVisible = await page.evaluate(() => !document.hidden);
+                console.log(`📋 Page visible: ${isVisible}`);
+                
+                if (isVisible && isMessagesPage(url)) {
+                    targetPage = page;
+                    console.log('✅ Found active Upwork messages tab');
+                    break;
                 }
             } catch (e) {
                 console.log(`⚠️ Error checking page: ${e.message}`);
-                continue;
             }
         }
-
-        // If no active Upwork page, find any Upwork page
+        
+        // If no active messages page, find any messages page
+        if (!targetPage) {
+            for (const page of pages) {
+                try {
+                    const url = page.url();
+                    if (isMessagesPage(url)) {
+                        targetPage = page;
+                        console.log('✅ Found Upwork messages tab (not active)');
+                        break;
+                    }
+                } catch (e) {
+                    // Skip if can't get URL
+                }
+            }
+        }
+        
+        // If still no messages page, use any Upwork page as fallback
         if (!targetPage) {
             targetPage = pages.find(page => page.url().includes('upwork.com'));
+            if (targetPage) {
+                console.log('⚠️ Using fallback Upwork tab (not a messages page)');
+            }
         }
-
+        
+        // If still no Upwork page, use the most recent tab
         if (!targetPage) {
-            console.log('⚠️ No Upwork page found');
-            return { messages: [], pageInfo: { error: 'No Upwork page found' } };
+            targetPage = pages[pages.length - 1];
+            console.log('⚠️ No Upwork page found, using most recent tab');
+        } else {
+            console.log('✅ Found Upwork page: ' + targetPage.url());
         }
-
-        console.log('✅ Found Upwork page:', targetPage.url());
 
         // Add progress tracking
         console.log('📊 Starting message extraction process...');
         const startTime = Date.now();
-// ====================== 🧱🔨 connect to Chrome and extract pages ======================
 
-//======================= 🛸💬 message extraction ======================
+        //======================= 🛸💬 message extraction ======================
         
-    // inside messages variable input data from a page with upwork messages targetPage.evaluate()
+        // inside messages variable input data from a page with upwork messages targetPage.evaluate()
         const messages = await targetPage.evaluate(() => {
             // array to store extracted messages
             const messageList = [];
@@ -254,21 +341,24 @@ async function extractMessagesFromLoggedInChrome() {
             // Helper functions for extraction
             function extractSender(element) {
                 const senderSelectors = [
-                    '.user-name',           // Upwork user name class
+                    '.story-header-name',       // Main sender name in story header
+                    '.up-d-story-header-name',  // Upwork story header name
+                    '.story-inner .sender-name', // Sender name in story inner
+                    '.user-name',               // Upwork user name class
                     '.room-list-item-base-text.item-title', // Room title
-                    '[data-test="room-name"]', // Data test attribute
-                    '.profile-title',       // Profile title
+                    '[data-test="room-name"]',  // Data test attribute
+                    '.profile-title',           // Profile title
                     '.sender-name',
                     '.client-name', 
                     '.freelancer-name',
-                    '[class*="name"]',
+                    '[class*="name"]',          // This worked in debug!
                     'h3', 'h4', 'h5',
                     '.title'
                 ];
                 // for each selector in senderSelectors array
                 // return text content if found
                 for (const sel of senderSelectors) {
-                    const senderEl = element.querySelector(seal);
+                    const senderEl = element.querySelector(sel);  // Fixed: was 'seal'
                     if (senderEl && senderEl.textContent.trim()) {
                         return senderEl.textContent.trim();
                     }
@@ -279,10 +369,14 @@ async function extractMessagesFromLoggedInChrome() {
             // Extract a short preview of the message content
             function extractPreview(element) {
                 const previewSelectors = [
-                    '.up-d-message',        // Upwork message content
-                    '.room-list-item-story', // Room story content
-                    '.story-message .up-d-message', // Story message
-                    '[data-test="story-message"]',
+                    '.story-message .up-d-message',    // Specific story message content
+                    '.up-d-message',                   // Upwork message content
+                    '.story-message',                  // Story message container 
+                    '.story-inner .story-section',     // Story section content
+                    '.room-list-item-story',           // Room story content
+                    '[data-test="story-message"]',     // Data test attribute
+                    '.message-content',                // Generic message content
+                    '.story-content',                  // Story content
                     '.message-preview',
                     '.preview-text',
                     '.summary',
@@ -293,7 +387,15 @@ async function extractMessagesFromLoggedInChrome() {
                 for (const sel of previewSelectors) {
                     const previewEl = element.querySelector(sel);
                     if (previewEl && previewEl.textContent.trim()) {
-                        return previewEl.textContent.trim().substring(0, 200);
+                        // Clean up the text - remove extra whitespace and buttons
+                        let text = previewEl.textContent.trim()
+                            .replace(/\s+/g, ' ')                    // Normalize whitespace
+                            .replace(/Reply to message.*/g, '')     // Remove action buttons
+                            .replace(/Favorite message.*/g, '')     // Remove action buttons
+                            .replace(/More options.*/g, '')         // Remove action buttons
+                            .replace(/Editing is only.*/g, '')      // Remove editing notice
+                            .trim();
+                        return text.substring(0, 200);
                     }
                 }
                 return '';
@@ -301,8 +403,12 @@ async function extractMessagesFromLoggedInChrome() {
             // Extract timestamp from element
             function extractTimestamp(element) {
                 const timeSelectors = [
-                    '.story-timestamp',     // Upwork story timestamp
-                    '.timestamp.text-base-sm', // Room timestamp
+                    '.header-timestamp',           // Day header timestamp (worked in debug!)
+                    '.story-timestamp',            // Upwork story timestamp
+                    '.up-d-story-time',           // Story time
+                    '.story-time',                // Story time variant
+                    '.timestamp.text-base-sm',    // Room timestamp
+                    '[class*="time"]',            // Worked in debug!
                     'time',
                     '.timestamp',
                     '.time',
@@ -313,7 +419,15 @@ async function extractMessagesFromLoggedInChrome() {
                 for (const sel of timeSelectors) {
                     const timeEl = element.querySelector(sel);
                     if (timeEl) {
-                        return timeEl.getAttribute('datetime') || timeEl.textContent.trim();
+                        let timeText = timeEl.getAttribute('datetime') || timeEl.textContent.trim();
+                        // Clean up timestamp text
+                        timeText = timeText
+                            .replace(/\s+/g, ' ')           // Normalize whitespace
+                            .replace(/^\s*|\s*$/g, '')      // Trim
+                            .split(/\s+/)                   // Split by whitespace
+                            .filter(part => part.match(/\d/)) // Keep parts with numbers
+                            .join(' ');                     // Rejoin
+                        return timeText;
                     }
                 }
                 return '';
@@ -412,31 +526,11 @@ async function extractMessagesFromLoggedInChrome() {
     }
 }
 
-//================================ 📂 File Operations ==============================
+//================================ 📂 File Operations (DEPRECATED - Use API instead) ==============================
 
 async function saveMessages(messages, pageInfo) {
-    try {
-        const dataDir = path.join(__dirname, '..', '..', '..', 'backend', 'notification_push', 'data');
-        await fs.mkdir(dataDir, { recursive: true });
-        
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = `upwork_messages_${timestamp}.json`;
-        const filepath = path.join(dataDir, filename);
-        
-        const data = {
-            messages,
-            pageInfo,
-            extractedAt: new Date().toISOString()
-        };
-        
-        await fs.writeFile(filepath, JSON.stringify(data, null, 2));
-        console.log(`💾 Messages saved to: ${filepath}`);
-        
-        return filepath;
-    } catch (error) {
-        console.error('❌ Could not save messages:', error.message);
-        throw error;
-    }
+    console.log('⚠️ saveMessages function is deprecated. Use saveMessagesToDatabase instead.');
+    return await saveMessagesToDatabase(messages, pageInfo);
 }
 
 //================================ 🚀 Main Execution ==============================
@@ -459,24 +553,14 @@ async function main() {
     } catch (error) {
         console.error('❌ Message extraction failed:', error.message);
         
+        // Don't create JSON files - just return error result
         const emptyResult = { messages: [], pageInfo: { error: error.message } };
-        const dataDir = path.join(__dirname, '..', '..', '..', 'backend', 'notification_push', 'data');
-        
-        try {
-            await fs.mkdir(dataDir, { recursive: true });
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const filename = `upwork_messages_error_${timestamp}.json`;
-            await fs.writeFile(path.join(dataDir, filename), JSON.stringify(emptyResult, null, 2));
-        } catch (writeError) {
-            console.error('❌ Could not save error result:', writeError.message);
-        }
-        
         return emptyResult;
     }
 }
 
 // Export functions for use in other modules
-module.exports = { extractMessagesFromLoggedInChrome, saveMessages, main };
+module.exports = { extractMessagesFromLoggedInChrome, saveMessages, saveMessagesToDatabase, main };
 
 // Run if called directly
 if (require.main === module) {

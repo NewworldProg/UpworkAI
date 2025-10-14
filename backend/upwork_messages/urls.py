@@ -7,6 +7,7 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path('save-messages/', views.save_messages_to_database_api, name='save_messages_to_database_api'),
     path('extract/', views.extract_and_save_messages, name='extract_and_save_messages'),
     path('extract/status/', views.get_extraction_status, name='get_extraction_status'),
     path('messages/', views.get_all_messages, name='get_all_messages'),

@@ -3,7 +3,7 @@ import axios from 'axios'
 import { openInExternalBrowser, copyToClipboard } from '../utils/browserUtils'
 import AIChatPanel from './AIChatPanel'
 
-export default function MessagePanel({ onOpenChat }) {
+export default function MessagePanel({ onOpenChat, onOpenChatAnalysis }) {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
   const [lastExtracted, setLastExtracted] = useState(null)
@@ -69,10 +69,13 @@ export default function MessagePanel({ onOpenChat }) {
         const responseData = response.data.data
         console.log('✅ Active chat analyzed:', responseData)
         
-        // Set data for AI panel
-        setAiChatData(responseData.chatData)
-        setAiSuggestions(responseData.suggestions || [])
-        setShowAIPanel(true)
+        // Open new page with analysis data
+        if (onOpenChatAnalysis) {
+          onOpenChatAnalysis({
+            chatData: responseData.chatData,
+            suggestions: responseData.suggestions || []
+          })
+        }
       } else {
         alert(`❌ Failed to analyze chat: ${response.data.error}`)
       }
@@ -211,22 +214,7 @@ export default function MessagePanel({ onOpenChat }) {
         errorMessage = 'Message extraction timed out. Make sure Chrome is open and logged into Upwork.';
       }
       
-      // Fallback to old endpoint if new one fails
-      try {
-        console.log('🔄 Pokušavam sa starim endpoint-om...')
-        const fallbackResponse = await axios.post('/api/notification-push/scrape-messages/')
-        
-        if (fallbackResponse.data.success) {
-          const extractedMessages = fallbackResponse.data.data.messages || []
-          setMessages(extractedMessages)
-          groupMessagesByChat(extractedMessages)
-          setLastExtracted(new Date().toLocaleString())
-        } else {
-          alert(errorMessage)
-        }
-      } catch (fallbackError) {
-        alert(errorMessage)
-      }
+      alert(errorMessage)
     }
     setLoading(false)
   }

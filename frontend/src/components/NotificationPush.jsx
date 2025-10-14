@@ -95,28 +95,42 @@ export default function NotificationPush() {
       setScrapingMessages(true)
       addLog('info', 'Extracting Upwork messages/notifications...')
       
-      const response = await axios.post('/api/notification-push/scrape-messages/')
+      // Start extraction process
+      const extractResponse = await axios.post('/api/messages/extract/')
       
-      if (response.data.success) {
-        const extractedMessages = response.data.data.messages || []
-        setMessages(extractedMessages)
-        addLog('success', `✅ Extracted ${extractedMessages.length} messages from Upwork`)
+      if (extractResponse.data.success) {
+        addLog('info', 'Message extraction started in background...')
         
-        // Log message details
-        if (extractedMessages.length > 0) {
-          extractedMessages.slice(0, 3).forEach((msg, index) => {
-            addLog('info', `Message ${index + 1}: ${msg.sender} - ${msg.preview.substring(0, 50)}...`)
-          })
-          if (extractedMessages.length > 3) {
-            addLog('info', `... and ${extractedMessages.length - 3} more messages`)
+        // Wait a bit for extraction to complete, then fetch messages
+        setTimeout(async () => {
+          try {
+            const messagesResponse = await axios.get('/api/messages/messages/')
+            const extractedMessages = messagesResponse.data || []
+            setMessages(extractedMessages)
+            addLog('success', `✅ Extracted ${extractedMessages.length} messages from Upwork`)
+            
+            // Log message details
+            if (extractedMessages.length > 0) {
+              extractedMessages.slice(0, 3).forEach((msg, index) => {
+                addLog('info', `Message ${index + 1}: ${msg.sender} - ${msg.preview.substring(0, 50)}...`)
+              })
+              if (extractedMessages.length > 3) {
+                addLog('info', `... and ${extractedMessages.length - 3} more messages`)
+              }
+            }
+          } catch (fetchError) {
+            addLog('error', `Failed to fetch extracted messages: ${fetchError.message}`)
+          } finally {
+            setScrapingMessages(false)
           }
-        }
+        }, 5000) // Wait 5 seconds for extraction to complete
+        
       } else {
-        addLog('error', `Message extraction failed: ${response.data.message}`)
+        addLog('error', `Message extraction failed: ${extractResponse.data.message}`)
+        setScrapingMessages(false)
       }
     } catch (error) {
       addLog('error', `Message extraction failed: ${error.message}`)
-    } finally {
       setScrapingMessages(false)
     }
   }

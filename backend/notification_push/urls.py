@@ -18,7 +18,6 @@ urlpatterns = [
     path('manual-scrape/', views.manual_scrape, name='manual_scrape'),  # Logged-in manual scraper
     path('universal-scrape/', views.universal_scrape, name='universal_scrape'),  # Universal DOM scraper
     path('scraped-projects/', views.get_scraped_projects, name='get_scraped_projects'),  # Get scraped jobs from DB
-    path('scrape-messages/', views.scrape_messages, name='scrape_messages'),  # Extract Upwork messages/notifications
     path('save-jobs/', views.save_jobs_to_database_api, name='save_jobs_to_database_api'),  # Direct database save API
     # path('save-scrapes/', views.save_recent_scrapes_to_db, name='save_recent_scrapes_to_db'),  # Manual save scraped jobs - TEMPORARILY DISABLED
 ]

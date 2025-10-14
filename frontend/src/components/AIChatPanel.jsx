@@ -67,7 +67,7 @@ export default function AIChatPanel({ isOpen, onClose, chatData, suggestions, on
             <div className="messages-section">
               <h4>Chat Messages</h4>
               <div className="messages-container">
-                {chatData.messages.slice(-10).map((message, index) => (
+                {chatData.messages.map((message, index) => (
                   <div 
                     key={message.id || index} 
                     className={`message-item ${message.type === 'system' ? 'system-message' : 'user-message'}`}

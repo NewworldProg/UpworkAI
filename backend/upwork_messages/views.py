@@ -21,26 +21,139 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# ========= 💾 save from captured messages and chat to database ==========
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def save_messages_to_database_api(request):
+
+    try:
+        # inside variable put extracted messages and page info
+        messages_data = request.data.get('messages', [])
+        page_info = request.data.get('pageInfo', {})
+        
+        # if not messages extracted, return error
+        if not messages_data:
+            return Response({
+                'success': False,
+                'message': 'No messages provided'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # inside models.MessageExtractionLog create new log entry
+        extraction_log = MessageExtractionLog.objects.create(
+            extraction_id=str(uuid.uuid4()),
+            page_url=page_info.get('url', ''),
+            total_messages_found=len(messages_data),
+            selector_used=page_info.get('selector_used', ''),
+            success=True
+        )
+        
+        saved_messages = 0
+        new_chats = 0
+        
+        # if success
+        # iterate through messages and save to DB
+        for msg_data in messages_data:
+            try:
+                # for every message create chat_id if not exists and save in models.Chat
+                chat_id = msg_data.get('conversationId') or f"chat_{msg_data.get('sender', 'unknown')}"
+                # Get or create chat
+                chat, created = Chat.objects.get_or_create(
+                    chat_id=chat_id,
+                    defaults={
+                        'sender_name': msg_data.get('sender', 'Unknown'),
+                        'chat_url': msg_data.get('chatUrl', ''),
+                        'last_activity': timezone.now(),
+                    }
+                )
+                # Increment new chat count if created
+                if created:
+                    new_chats += 1
+                
+                # Parse timestamp
+                msg_timestamp = msg_data.get('timestamp')
+                if msg_timestamp:
+                    try:
+                        if msg_timestamp.endswith('Z'):
+                            msg_timestamp = msg_timestamp[:-1] + '+00:00'
+                        parsed_time = timezone.datetime.fromisoformat(msg_timestamp)
+                    except:
+                        parsed_time = timezone.now()
+                else:
+                    parsed_time = timezone.now()
+                
+                # Create or update message
+                message_id = msg_data.get('id', f"msg_{uuid.uuid4()}")
+                message, created = Message.objects.get_or_create(
+                    message_id=message_id,
+                    chat=chat,
+                    defaults={
+                        'sender': msg_data.get('sender', 'Unknown'),
+                        'content': msg_data.get('content', msg_data.get('text', '')),
+                        'preview': msg_data.get('preview', '')[:500],
+                        'timestamp': parsed_time,
+                        'is_read': msg_data.get('isRead', True),
+                        'selector_used': msg_data.get('selector_used', ''),
+                        'html_snippet': msg_data.get('html', '')[:1000],
+                    }
+                )
+                
+                if created:
+                    saved_messages += 1
+                
+                # Update chat metadata
+                chat.total_messages = chat.messages.count()
+                chat.unread_count = chat.messages.filter(is_read=False).count()
+                chat.last_activity = timezone.now()
+                chat.save()
+                
+            except Exception as e:
+                logger.error(f"Error processing message {msg_data.get('id')}: {e}")
+                continue
+        
+        # Update extraction log
+        extraction_log.new_messages_saved = saved_messages
+        extraction_log.save()
+        
+        logger.info(f"✅ Direct API save completed: {saved_messages} new messages in {new_chats} new chats")
+        
+        return Response({
+            'success': True,
+            'message': f'Successfully saved {saved_messages} messages in {new_chats} chats',
+            'data': {
+                'saved_messages': saved_messages,
+                'new_chats': new_chats,
+                'total_processed': len(messages_data),
+                'extraction_id': extraction_log.extraction_id
+            }
+        }, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        logger.error(f"Error in direct message save API: {str(e)}")
+        return Response({
+            'success': False,
+            'message': f'Failed to save messages: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# ========= 🛸📬 message scraper call ==========
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def extract_and_save_messages(request):
-    """Extract messages from Upwork and save to database - Async approach"""
     try:
-        # Run message extractor script
+        # Get path to message scraper = message_extractor.js
         current_dir = os.path.dirname(__file__)
         project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
         scraper_dir = os.path.join(project_root, 'frontend', 'src', 'scraper')
         message_script = os.path.join(scraper_dir, 'message_extractor.js')
-        
+        # if not exists return error
         if not os.path.exists(message_script):
             return Response({
                 'success': False,
                 'message': f'Message extractor not found: {message_script}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # Log start
+        logger.info(f"🎬 Frontend requested message extraction")
         
-        logger.info(f"Starting message extraction with: {message_script}")
-        
-        # Start process in background without waiting
+        # Start scraper in background (scraper will call save_messages_to_database_api directly)
         import threading
         def run_extraction():
             try:
@@ -51,138 +164,38 @@ def extract_and_save_messages(request):
                     text=True,
                     encoding='utf-8',
                     errors='replace',
-                    timeout=300  # 5 minutes timeout for background process
+                    timeout=300  # 5 minutes timeout
                 )
                 
-                if result.returncode != 0:
-                    logger.error(f"❌ Background message extraction failed: {result.stderr}")
-                    return
-                
-                # Process extraction results
-                data_dir = os.path.join(project_root, 'backend', 'notification_push', 'data')
-                
-                if not os.path.exists(data_dir):
-                    logger.error("❌ Data directory not found")
-                    return
-                
-                message_files = []
-                for file in os.listdir(data_dir):
-                    if file.startswith('upwork_messages_') and file.endswith('.json'):
-                        message_files.append(os.path.join(data_dir, file))
-                
-                if not message_files:
-                    logger.warning("⚠️ No extracted messages found")
-                    return
-                
-                # Get most recent file
-                latest_file = max(message_files, key=os.path.getctime)
-                
-                # Load extracted data
-                with open(latest_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                
-                messages_data = data.get('messages', [])
-                page_info = data.get('pageInfo', {})
-                
-                # Create extraction log
-                extraction_log = MessageExtractionLog.objects.create(
-                    extraction_id=str(uuid.uuid4()),
-                    page_url=page_info.get('url', ''),
-                    total_messages_found=len(messages_data),
-                    selector_used=page_info.get('selector_used', ''),
-                    success=True
-                )
-                
-                saved_messages = 0
-                new_chats = 0
-                
-                # Process each message
-                for msg_data in messages_data:
-                    try:
-                        # Get or create chat
-                        chat_id = msg_data.get('conversationId') or f"chat_{msg_data.get('sender', 'unknown')}"
-                        chat, created = Chat.objects.get_or_create(
-                            chat_id=chat_id,
-                            defaults={
-                                'sender_name': msg_data.get('sender', 'Unknown'),
-                                'chat_url': msg_data.get('chatUrl', ''),
-                                'last_activity': timezone.now(),
-                            }
-                        )
-                        
-                        if created:
-                            new_chats += 1
-                        
-                        # Parse timestamp
-                        msg_timestamp = msg_data.get('timestamp')
-                        if msg_timestamp:
-                            try:
-                                if msg_timestamp.endswith('Z'):
-                                    msg_timestamp = msg_timestamp[:-1] + '+00:00'
-                                parsed_time = timezone.datetime.fromisoformat(msg_timestamp)
-                            except:
-                                parsed_time = timezone.now()
-                        else:
-                            parsed_time = timezone.now()
-                        
-                        # Create or update message
-                        message_id = msg_data.get('id', f"msg_{uuid.uuid4()}")
-                        message, created = Message.objects.get_or_create(
-                            message_id=message_id,
-                            chat=chat,
-                            defaults={
-                                'sender': msg_data.get('sender', 'Unknown'),
-                                'content': msg_data.get('content', msg_data.get('text', '')),
-                                'preview': msg_data.get('preview', '')[:500],
-                                'timestamp': parsed_time,
-                                'is_read': msg_data.get('isRead', True),  # Default to read
-                                'selector_used': msg_data.get('selector_used', ''),
-                                'html_snippet': msg_data.get('html', '')[:1000],
-                            }
-                        )
-                        
-                        if created:
-                            saved_messages += 1
-                        
-                        # Update chat metadata
-                        chat.total_messages = chat.messages.count()
-                        chat.unread_count = chat.messages.filter(is_read=False).count()
-                        chat.last_activity = timezone.now()
-                        chat.save()
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing message {msg_data.get('id')}: {e}")
-                        continue
-                
-                # Update extraction log
-                extraction_log.new_messages_saved = saved_messages
-                extraction_log.save()
-                
-                logger.info(f"✅ Background extraction completed: {saved_messages} new messages in {new_chats} new chats")
+                if result.returncode == 0:
+                    logger.info("✅ Message extraction orchestration completed successfully")
+                else:
+                    logger.error(f"❌ Message extraction failed: {result.stderr}")
                 
             except subprocess.TimeoutExpired:
-                logger.error("❌ Background message extraction timed out after 5 minutes")
+                logger.error("❌ Message extraction timed out after 5 minutes")
             except Exception as e:
-                logger.error(f"❌ Background extraction error: {str(e)}")
+                logger.error(f"❌ Message extraction error: {str(e)}")
         
-        # Start extraction in background thread
+        # Start in background
         extraction_thread = threading.Thread(target=run_extraction, daemon=True)
         extraction_thread.start()
         
-        # Return immediate response
         return Response({
             'success': True,
-            'message': 'Message extraction started in background. Check logs for completion status.',
-            'status': 'processing'
+            'message': 'Message extraction started. Scraper will save results directly to database.',
+            'status': 'processing',
+            'approach': 'modernized_direct_api'
         }, status=status.HTTP_202_ACCEPTED)
         
     except Exception as e:
-        logger.error(f"Unexpected error during message extraction setup: {str(e)}")
+        logger.error(f"Unexpected error in extraction orchestrator: {str(e)}")
         return Response({
             'success': False,
             'message': f'Unexpected error: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+# ======== 🎬 Orchestrator for message extraction from frontend =========
+# ========= 🗒️ last extraction status =========
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_extraction_status(request):
@@ -197,7 +210,7 @@ def get_extraction_status(request):
                 'status': 'no_extractions',
                 'message': 'No message extractions found'
             })
-        
+        # If extraction exists, return its status and details
         return Response({
             'success': True,
             'status': 'completed' if latest_log.success else 'failed',
@@ -215,7 +228,8 @@ def get_extraction_status(request):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+# ========= 🗒️ last extraction status =========
+#=========  📱get last 200 messages =========
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_all_messages(request):
@@ -246,7 +260,8 @@ def get_all_messages(request):
             'error': 'Failed to fetch messages',
             'message': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+#========= 📱get last 200 messages =========
+#========= 📱get last 20 chats with messages =========
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_chats_with_messages(request):
@@ -296,6 +311,7 @@ def get_chats_with_messages(request):
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+# ========= 📱get chat messages =========
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_chat_messages(request, chat_id):
@@ -368,6 +384,7 @@ def get_chat_messages(request, chat_id):
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+# ========= 🤖 AI chat suggestions and responses =========
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
 def suggest_ai_replies(request, chat_id=None):
@@ -528,12 +545,13 @@ def open_message_in_chrome(request):
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+# ========  🛸💬🗣️ active chat scraper =========
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def analyze_active_chat(request):
-    """Analyze active chat in Chrome debugger and provide AI suggestions"""
+
     try:
-        # Get paths
+        # start active chat scraper in path ../frontend/src/scraper/active_chat_scraper.js
         current_dir = os.path.dirname(__file__)
         project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
         scraper_dir = os.path.join(project_root, 'frontend', 'src', 'scraper')
@@ -662,6 +680,8 @@ def analyze_active_chat(request):
             'error': f'Unexpected error: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+# Helper function to generate AI suggestions
+# ========= 🤖 AI chat suggestions and responses =========
 def generate_ai_suggestions(chat_data):
     """Generate AI reply suggestions based on chat content"""
     try:
