@@ -298,7 +298,7 @@ async function extractMessagesFromLoggedInChrome() {
                 }
                 return '';
             }
-
+            // Extract timestamp from element
             function extractTimestamp(element) {
                 const timeSelectors = [
                     '.story-timestamp',     // Upwork story timestamp
@@ -318,7 +318,7 @@ async function extractMessagesFromLoggedInChrome() {
                 }
                 return '';
             }
-
+            /// Extract read/unread status
             function extractReadStatus(element) {
                 // Check for unread indicators
                 const unreadIndicators = [
@@ -335,7 +335,7 @@ async function extractMessagesFromLoggedInChrome() {
                 }
                 return true; // Assume read if no unread indicator
             }
-
+            // Extract conversation/room ID
             function extractConversationId(element) {
                 // Try to find conversation/room ID from data attributes
                 const idAttributes = ['data-conversation-id', 'data-room-id', 'data-id', 'id'];

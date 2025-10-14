@@ -7,18 +7,6 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
-# ==========  🚀🤖 scraping mode universal ==========
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def universal_scrape(request):
-    """
-    Universal DOM scraping with enhanced error handling and state cleanup
-    """
-    
-    # run scraper with parameter for 
-    # universal mode
-    # DOM scraper (reads any page content)
-    return _run_scraper('universal', 'Universal DOM scrape')
 import logging
 import subprocess
 import os
@@ -26,7 +14,7 @@ import json
 import sys
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from django.utils import timezone
 from projects.models import Project  # Import Project model for scraped jobs integration
 from .models import Job, ScrapingSession, Notification, ChromeSession  # Import new database models
@@ -45,15 +33,28 @@ monitoring_state = {
         'profile_id': ''
     }
 }
+
+# ==========  🚀🤖 scraping mode universal ==========
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def universal_scrape(request):
+    """
+    Universal DOM scraping with enhanced error handling and state cleanup
+    """
+    
+    # run scraper with parameter for 
+    # universal mode
+    # DOM scraper (reads any page content)
+    return _run_scraper('universal', 'Universal DOM scrape')
 # ========== 🚀 call browser monitoring functions ==========
 
-# ========== 🖥️ view of browser monitoring functions ==========
+# ========== 🔎🌐 check if browser is running and send status ==========
 @api_view(['GET']) # get method
 @permission_classes([AllowAny]) # allow any user (no auth)
 def notification_status(request): # take request as input
 
     try:
-        # Check real Chrome debugging status
+        # Check real Chrome debugging status, in helper function below
         chrome_available = check_chrome_debugging_available()
         
         # Update monitoring_state based on True/False is_running status
@@ -83,7 +84,7 @@ def notification_status(request): # take request as input
             'status': 'error'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# ========== start monitoring based on user input ==========
+# ===== 🛸🖥️🙍start job monitoring based on keywords and profile ID ======
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def start_monitoring(request):
@@ -130,21 +131,23 @@ def start_monitoring(request):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-#========== start monitoring based on user input end ==========
+#===== 🛸🖥️🙍start job monitoring based on keywords and profile ID ======
 
-# ========== reset monitoring state ==========
+# ========== 🔄️🖥️ reset monitoring state ==========
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def stop_monitoring(request):
 
     try:
-        # Reset monitoring state regardless of current state
+        # set monitoring_state ['is_running'] to false
+        # set monitoring_state ['status'] to 'disconnected'
         monitoring_state['is_running'] = False
         monitoring_state['status'] = 'disconnected'
-        
-        # Kill scraper process if it exists
+
+        # if monitoring_state ['process'] exists
         if monitoring_state['process']:
             try:
+                # Terminate the process and set to None
                 monitoring_state['process'].terminate()
                 monitoring_state['process'] = None
             except:
@@ -173,29 +176,32 @@ def stop_monitoring(request):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+# ========== 🔄️🖥️ reset monitoring state ==========
 
-#========== notifications get methods (same as jobs) ==========
+#========== 🗒️🖥️ notifications display  ==========
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_notifications(request):
-    """
-    Get system notifications from database
-    """
+    
     try:
-        # Get pagination parameters
+        # set variables for GET rendering
+        # limit rendering to 50
         limit = int(request.GET.get('limit', 50))
+        # starting point of jobs rendered
         offset = int(request.GET.get('offset', 0))
+        # show only unread
         unread_only = request.GET.get('unread_only', '').lower() == 'true'
         
-        # Get notifications from database
+        # Get notifications from database models.Notification
         notifications_query = Notification.objects.all()
         if unread_only:
             notifications_query = notifications_query.filter(is_read=False)
-        
+        # Limit the number of notifications returned and starting point
         notifications = notifications_query[offset:offset+limit]
+        # count total notifications for
         total_count = notifications_query.count()
-        
-        # Serialize notifications data
+
+        # cleaned notifications in array for rendering
         notifications_data = []
         for notif in notifications:
             notifications_data.append({
@@ -211,7 +217,7 @@ def get_notifications(request):
                 'session_id': notif.session.session_id if notif.session else None,
                 'data': notif.data,
             })
-        
+        # render response
         return Response({
             'success': True,
             'notifications': notifications_data,
@@ -220,30 +226,99 @@ def get_notifications(request):
             'limit': limit,
             'offset': offset
         })
+    # or error
     except Exception as e:
         logger.error(f"Error getting notifications: {e}")
         return Response({
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+# ================== 🗒️🖥️ notifications display ======================
 
-#========== job get methods (same as notifications) ==========
+#========================= 🗒️🖥️ jobs display =========================
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_jobs(request):
     """
-    Get captured Upwork jobs from database
+    Get captured Upwork jobs from the most recent scraping session only
     """
     try:
-        # Get pagination parameters
-        limit = int(request.GET.get('limit', 50))
+        # Get the most recent session
+        latest_session = ScrapingSession.objects.order_by('-started_at').first()
+        
+        if not latest_session:
+            return Response({
+                'success': True,
+                'jobs': [],
+                'total_count': 0,
+                'session_info': None
+            })
+        
+        # Get all jobs from the latest session based on time window
+        # Jobs scraped between session start and completion
+        session_jobs = Job.objects.filter(
+            scraped_at__gte=latest_session.started_at,
+            scraped_at__lte=latest_session.completed_at or timezone.now()
+        ).order_by('-scraped_at')
+        
+        total_count = session_jobs.count()
+
+        # cleaned jobs data for rendering
+        jobs_data = []
+        for job in session_jobs:
+            jobs_data.append({
+                'id': job.job_id,
+                'title': job.title,
+                'description': job.description,
+                'client_name': job.client_name,
+                'budget': job.budget,
+                'hourly_rate': job.hourly_rate,
+                'posted_date': job.posted_date.isoformat() if job.posted_date else None,
+                'job_url': job.job_url,
+                'location': job.location,
+                'job_type': job.job_type,
+                'is_applied': job.is_applied,
+                'is_favorite': job.is_favorite,
+                'scraped_at': job.scraped_at.isoformat(),
+            })
+        # render response
+        return Response({
+            'success': True,
+            'jobs': jobs_data,
+            'total_count': total_count,
+            'session_info': {
+                'session_id': latest_session.session_id,
+                'started_at': latest_session.started_at.isoformat(),
+                'total_jobs_found': latest_session.total_jobs_found,
+                'new_jobs_saved': latest_session.new_jobs_saved,
+                'status': latest_session.status
+            }
+        })
+    # or error
+    except Exception as e:
+        logger.error(f"Error getting jobs: {e}")
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_all_jobs(request):
+    """
+    Get all jobs from database with pagination for ProjectList
+    """
+    try:
+        # limit rendering to 20 for ProjectList
+        limit = int(request.GET.get('limit', 20))
+        # starting point of jobs rendered
         offset = int(request.GET.get('offset', 0))
-        
-        # Get jobs from database
-        jobs = Job.objects.all()[offset:offset+limit]
+
+        # Get all jobs from database models.Job
+        jobs = Job.objects.all().order_by('-scraped_at')[offset:offset+limit]
         total_count = Job.objects.count()
-        
-        # Serialize jobs data
+
+        # cleaned jobs data for rendering
         jobs_data = []
         for job in jobs:
             jobs_data.append({
@@ -261,20 +336,24 @@ def get_jobs(request):
                 'is_favorite': job.is_favorite,
                 'scraped_at': job.scraped_at.isoformat(),
             })
-        
+        # render response
         return Response({
             'success': True,
             'jobs': jobs_data,
             'total_count': total_count,
             'limit': limit,
-            'offset': offset
+            'offset': offset,
+            'has_next': (offset + limit) < total_count,
+            'has_previous': offset > 0
         })
+    # or error
     except Exception as e:
-        logger.error(f"Error getting jobs: {e}")
+        logger.error(f"Error getting all jobs: {e}")
         return Response({
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+#======================== 🗒️🖥️ jobs display =========================
 
 # ==========  ➕🏢 job append methods ==========
 @api_view(['POST'])
@@ -303,6 +382,7 @@ def batch_jobs(request):
             'success': False,
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+#=========  ➕🏢 job append methods ==========
 
 # ========== 🚀🤖 scraping mode manual ==========
 @api_view(['POST'])
@@ -313,9 +393,8 @@ def manual_scrape(request):
     # manual scrape (reads current Upwork page)
     return _run_scraper('logged-in', 'Manual scrape for logged-in user')
 
-# ==========  � Save scraped jobs to database ==========
 def save_scraped_jobs_to_db(jobs_data, scrape_mode='universal'):
-    """Save scraped jobs to Project model"""
+    """Save scraped jobs to Project model (legacy function)"""
     try:
         saved_count = 0
         
@@ -364,7 +443,68 @@ def save_scraped_jobs_to_db(jobs_data, scrape_mode='universal'):
         logger.error(f"❌ Error saving scraped jobs: {e}")
         return 0
 
-# ==========  �🚀🤖 scraping mode universal ==========
+def save_scraped_jobs_to_database(jobs_data, scrape_mode='universal', session=None):
+    """Save scraped jobs to notification_push Job model"""
+    try:
+        saved_count = 0
+        
+        for job in jobs_data:
+            job_id = job.get('id') or job.get('url', f"job_{timezone.now().timestamp()}")
+            title = job.get('title', 'Untitled Job')
+            
+            # Skip if job with same job_id already exists
+            if not Job.objects.filter(job_id=job_id).exists():
+                
+                # Parse posted date
+                posted_date = timezone.now()
+                time_posted = job.get('timePosted') or job.get('time_posted')
+                if time_posted:
+                    try:
+                        # Try to parse various date formats
+                        from dateutil import parser
+                        posted_date = parser.parse(time_posted)
+                    except:
+                        posted_date = timezone.now()
+                
+                # Create new Job in notification_push model
+                new_job = Job.objects.create(
+                    job_id=job_id,
+                    title=title,
+                    description=job.get('description', 'No description available'),
+                    client_name=job.get('client', 'Unknown Client'),
+                    budget=job.get('budget', ''),
+                    hourly_rate=job.get('hourly_rate', ''),
+                    posted_date=posted_date,
+                    job_url=job.get('url', ''),
+                    location=job.get('location', ''),
+                    job_type=job.get('job_type', scrape_mode),
+                    selector_used=job.get('selector_used', ''),
+                    html_snippet=job.get('html', '')[:1000] if job.get('html') else ''
+                )
+                
+                # Create notification for new job
+                Notification.objects.create(
+                    notification_id=f"job_{new_job.id}_{timezone.now().timestamp()}",
+                    title=f"New Job Found: {title[:50]}",
+                    message=f"Found new job from {new_job.client_name}",
+                    type='info',
+                    source='scraper',
+                    job=new_job,
+                    session=session,
+                    data={'scrape_mode': scrape_mode}
+                )
+                
+                saved_count += 1
+                logger.info(f"💾 Saved job to notification_push DB: {title}")
+                
+        logger.info(f"💾 Saved {saved_count} new jobs to notification_push database")
+        return saved_count
+        
+    except Exception as e:
+        logger.error(f"❌ Error saving jobs to notification_push database: {e}")
+        return 0
+
+# ==========  🚀🤖 scraping mode universal ==========
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def universal_scrape(request):
@@ -374,27 +514,59 @@ def universal_scrape(request):
     # DOM scraper (reads any page content)
     return _run_scraper('universal', 'Universal DOM scrape')
 
-# ==========  scraping main logic ==========
+# ========== 🛸🤖 helper function for scraping ==========
 def _run_scraper(mode, description):
     
     try:
-        # Check if Chrome debugging is available 
+        # 1. Cleanup old running sessions that are stuck (older than 10 minutes)
+        stale_sessions = ScrapingSession.objects.filter(
+            status='running',
+            started_at__lt=timezone.now() - timedelta(minutes=10)
+        )
+        
+        if stale_sessions.exists():
+            stale_count = stale_sessions.count()
+            stale_sessions.update(
+                status='failed',
+                error_message='Session timed out - possibly interrupted by multiple tabs or browser conflicts',
+                completed_at=timezone.now()
+            )
+            logger.warning(f"Marked {stale_count} stale running sessions as failed")
+        
+        # 2. Check if there's already an active scraping session
+        active_sessions = ScrapingSession.objects.filter(
+            status='running',
+            started_at__gte=timezone.now() - timedelta(minutes=10)  # Last 10 minutes
+        )
+        
+        if active_sessions.exists():
+            return Response({
+                'success': False,
+                'message': 'Another scraping session is already running. Please wait for it to complete or try again in a few minutes.'
+            }, status=status.HTTP_409_CONFLICT)
+        
+        # 3. Check if Chrome debugging is available 
         if not check_chrome_debugging_available():
-            # if not available, update state to disconnected + return 400
+            # if not available
+            # monitoring_state['is_running'] to false
+            # monitoring_state['status'] to 'disconnected'
             monitoring_state['is_running'] = False
             monitoring_state['status'] = 'disconnected'
+            # return error response
             return Response({
                 'success': False,
                 'message': 'Chrome debugging not available. Please start Chrome browser first.'
             }, status=status.HTTP_400_BAD_REQUEST)
         else:
-            # Chrome is available, update state to connected
+            # else Chrome is available
+            # monitoring_state['is_running'] to true
+            # monitoring_state['status'] to 'connected'
             monitoring_state['is_running'] = True
             monitoring_state['status'] = 'connected'
         
         
         try:
-            # get path for
+            # 2. get path for
             # root
             current_dir = os.path.dirname(__file__)
             # project root
@@ -413,7 +585,7 @@ def _run_scraper(mode, description):
             # manual_scrape or universal_scrape
             logger.info(f"🔍 Running {description} with: {extractor_script}")
 
-            # in variable cmd_args
+            # 3.  in variable cmd_args and run the scraper in subprocess
             # put
             # 1. node 
             # 2. frontend/src/scraper/enhanced_extractor.js
@@ -422,7 +594,7 @@ def _run_scraper(mode, description):
             # log everything
             logger.info(f"🔍 Using enhanced extractor with mode: {extractor_script}")
             
-            # in subprocess run
+            # in subprocess run frontend/src/scraper/enhanced_extractor.js
             result = subprocess.run(
                 cmd_args, # cmd_args
                 cwd=scraper_dir,  # in cwd=scraper_dir (updated from browser_dir)
@@ -430,43 +602,40 @@ def _run_scraper(mode, description):
                 text=True, # text and not bytes
                 encoding='utf-8', # encoding utf-8
                 errors='replace',  # Replace problematic characters instead of crashing
-                timeout=10  # Very short timeout for faster failures
+                timeout=60  # Increased timeout for API-based scraping (scraper + API call)
             )
             # if returncode is 0 return standard output message
             if result.returncode == 0:
                 logger.info(f"✅ {description} completed successfully")
                 logger.info(f"Output: {result.stdout}")
                 
-                # Try to read extracted data from backend/notification_push/data/extracted_jobs.json
-                data_file = os.path.join(project_root, 'backend', 'notification_push', 'data', 'extracted_jobs.json')
-                jobs_extracted = 0
-                saved_count = 0  # Initialize saved_count
-                page_info = None
-
-                # Check if the data file exists
-                if os.path.exists(data_file):
-                    try:
-                        with open(data_file, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                            # if data exists
-                            if isinstance(data, list):
-                                # append job list
-                                jobs_extracted = len(data)
-                                monitoring_state['jobs'].extend(data)
-                                # Save scraped jobs to database
-                                saved_count = save_scraped_jobs_to_db(data, mode)
-                            else:
-                                # else append job list from data['jobs']
-                                # and pageInfo from data['pageInfo']
-                                jobs_extracted = len(data.get('jobs', []))
-                                monitoring_state['jobs'].extend(data.get('jobs', []))
-                                page_info = data.get('pageInfo')
-                                # Save scraped jobs to database
-                                saved_count = save_scraped_jobs_to_db(data.get('jobs', []), mode)
-                                
-                    except Exception as read_error:
-                        logger.warning(f"Could not read extracted data: {read_error}")
-                        saved_count = 0
+                # Wait a moment for API call to complete
+                time.sleep(1)
+                
+                # Get recent scraping sessions from last 5 minutes only
+                # 🧱 Build
+                # in variable five_minutes_ago
+                # put timedelta(minutes=5)
+                five_minutes_ago = timezone.now() - timedelta(minutes=5)
+                
+                # in variable recent_sessions
+                # put ScrapingSession.objects.filter(
+                recent_sessions = ScrapingSession.objects.filter(
+                    session_id__startswith='api_session_',
+                    started_at__gte=five_minutes_ago  # Only sessions from last 5 minutes
+                ).order_by('-started_at')[:1]
+                
+                if recent_sessions.exists():
+                    session = recent_sessions.first()
+                    jobs_extracted = session.total_jobs_found
+                    saved_count = session.new_jobs_saved
+                    page_info = {'scraper_mode': mode, 'session_found': True}
+                else:
+                    # No recent session found - scraper might not have called API
+                    jobs_extracted = 0
+                    saved_count = 0
+                    page_info = {'scraper_mode': mode, 'session_found': False}
+                    logger.warning(f"No recent API session found for {mode} scraper - check if scraper is calling save API")
                 
                 # prepare response data
                 response_data = {
@@ -830,4 +999,60 @@ def scrape_messages(request):
         return Response({
             'success': False,
             'message': f'Unexpected error: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# ========== 💾 Direct Database Save API ==========
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def save_jobs_to_database_api(request):
+    """
+    Save jobs directly to database from frontend scrapers
+    Replaces JSON file storage with direct database operations
+    """
+    try:
+        data = request.data
+        jobs = data.get('jobs', [])
+        mode = data.get('mode', 'unknown')
+        
+        if not jobs:
+            return Response({
+                'success': True,
+                'message': 'No jobs to save',
+                'saved_count': 0
+            })
+        
+        # Create scraping session
+        session = ScrapingSession.objects.create(
+            session_id=f"api_session_{timezone.now().strftime('%Y%m%d_%H%M%S')}",
+            page_url=f"Scraper API - {mode} mode",
+            selector_used=f"{mode}_api_extractor",
+            total_jobs_found=len(jobs)
+        )
+        
+        # Save jobs using the database function
+        saved_count = save_scraped_jobs_to_database(jobs, mode, session)
+        
+        # Update session with results
+        session.new_jobs_saved = saved_count
+        session.status = 'completed' if saved_count > 0 else 'failed'
+        session.completed_at = timezone.now()
+        if saved_count == 0:
+            session.error_message = 'No new jobs saved (possibly duplicates)'
+        session.save()
+        
+        logger.info(f"📡 API saved {saved_count} jobs from {mode} scraper")
+        
+        return Response({
+            'success': True,
+            'message': f'Successfully saved {saved_count} jobs to database',
+            'saved_count': saved_count,
+            'total_found': len(jobs),
+            'session_id': session.session_id
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error in save_jobs_to_database_api: {str(e)}")
+        return Response({
+            'success': False,
+            'message': f'Error saving jobs: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

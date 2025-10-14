@@ -9,6 +9,66 @@
 const puppeteerCore = require('puppeteer-core');
 const fs = require('fs').promises;
 const path = require('path');
+const https = require('https');
+const http = require('http');
+
+// Function to save jobs directly to database via API
+async function saveJobsToDatabase(extractedData, mode) {
+    try {
+        const jobs = Array.isArray(extractedData) ? extractedData : extractedData.jobs || [];
+        
+        if (jobs.length === 0) {
+            console.log('⚠️ No jobs to save');
+            return;
+        }
+
+        const postData = JSON.stringify({
+            jobs: jobs,
+            mode: mode,
+            timestamp: new Date().toISOString()
+        });
+
+        const options = {
+            hostname: 'localhost',
+            port: 8000,
+            path: '/api/notification-push/save-jobs/',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(postData)
+            }
+        };
+
+        return new Promise((resolve, reject) => {
+            const req = http.request(options, (res) => {
+                let data = '';
+                res.on('data', (chunk) => {
+                    data += chunk;
+                });
+                res.on('end', () => {
+                    if (res.statusCode === 200 || res.statusCode === 201) {
+                        console.log(`✅ Successfully saved ${jobs.length} jobs to database`);
+                        resolve(JSON.parse(data));
+                    } else {
+                        console.log(`⚠️ API response: ${res.statusCode} - ${data}`);
+                        resolve(null);
+                    }
+                });
+            });
+
+            req.on('error', (err) => {
+                console.log(`⚠️ Could not save to database: ${err.message}`);
+                resolve(null); // Don't fail the whole process
+            });
+
+            req.write(postData);
+            req.end();
+        });
+
+    } catch (error) {
+        console.log(`⚠️ Error preparing database save: ${error.message}`);
+    }
+}
 
 //================================ 🛸 Mode 1: Logged-in Scraper ==============================
 async function extractFromLoggedInChrome() {
@@ -37,23 +97,54 @@ async function extractFromLoggedInChrome() {
         // variable to hold the target page
         let targetPage = null;
         
-        // First try to find upwork.com in the active pages
+        // Function to check if URL is a jobs page
+        const isJobsPage = (url) => {
+            return url.includes('upwork.com') && 
+                (url.includes('/nx/search/jobs') ||
+                 url.includes('/nx/find-work') ||
+                 url.includes('/freelancers') ||
+                 url.includes('/jobs'));
+        };
+        
+        // First try to find active jobs page
         for (const page of pages) {
             try {
+                const url = page.url();
+                console.log(`🔍 Checking tab: ${url}`);
+                
                 const isVisible = await page.evaluate(() => !document.hidden);
-                if (isVisible && page.url().includes('upwork.com')) {
+                if (isVisible && isJobsPage(url)) {
                     targetPage = page;
-                    console.log('✅ Found active Upwork tab');
+                    console.log('✅ Found active Upwork jobs tab');
                     break;
                 }
             } catch (e) {
-                // Skip if can't evaluate
+                console.log(`⚠️ Error checking page: ${e.message}`);
             }
         }
         
-        // If no active Upwork page, find any Upwork page
+        // If no active jobs page, find any jobs page
+        if (!targetPage) {
+            for (const page of pages) {
+                try {
+                    const url = page.url();
+                    if (isJobsPage(url)) {
+                        targetPage = page;
+                        console.log('✅ Found Upwork jobs tab (not active)');
+                        break;
+                    }
+                } catch (e) {
+                    // Skip if can't get URL
+                }
+            }
+        }
+        
+        // If still no jobs page, use any Upwork page as fallback
         if (!targetPage) {
             targetPage = pages.find(page => page.url().includes('upwork.com'));
+            if (targetPage) {
+                console.log('⚠️ Using fallback Upwork tab (not a jobs page)');
+            }
         }
         
         // If still no Upwork page, use the most recent tab
@@ -172,21 +263,65 @@ async function extractFromAnyPage() {
         // Find the currently active/focused tab
         let targetPage = null;
         
-        // Try to find the active page (not hidden)
+        // Function to check if URL is a jobs page
+        const isJobsPage = (url) => {
+            return url.includes('upwork.com') && 
+                (url.includes('/nx/search/jobs') ||
+                 url.includes('/nx/find-work') ||
+                 url.includes('/freelancers') ||
+                 url.includes('/jobs'));
+        };
+        
+        // First try to find active jobs page
         for (const page of pages) {
             try {
+                const url = page.url();
+                console.log(`🔍 Checking tab: ${url}`);
+                
                 const isVisible = await page.evaluate(() => !document.hidden);
-                if (isVisible) {
+                if (isVisible && isJobsPage(url)) {
                     targetPage = page;
-                    console.log('✅ Found active tab');
+                    console.log('✅ Found active Upwork jobs tab');
                     break;
                 }
             } catch (e) {
-                // Skip if can't evaluate
+                console.log(`⚠️ Error checking page: ${e.message}`);
             }
         }
         
-        // If no active page found, use the most recent tab
+        // If no active jobs page, find any jobs page
+        if (!targetPage) {
+            for (const page of pages) {
+                try {
+                    const url = page.url();
+                    if (isJobsPage(url)) {
+                        targetPage = page;
+                        console.log('✅ Found Upwork jobs tab (not active)');
+                        break;
+                    }
+                } catch (e) {
+                    // Skip if can't get URL
+                }
+            }
+        }
+        
+        // If no jobs page, try to find the active page
+        if (!targetPage) {
+            for (const page of pages) {
+                try {
+                    const isVisible = await page.evaluate(() => !document.hidden);
+                    if (isVisible) {
+                        targetPage = page;
+                        console.log('⚠️ Using active tab (not a jobs page)');
+                        break;
+                    }
+                } catch (e) {
+                    // Skip if can't evaluate
+                }
+            }
+        }
+        
+        // If still no page, use the most recent tab
         if (!targetPage) {
             targetPage = pages[pages.length - 1];
             console.log('⚠️ No active tab found, using most recent tab');
@@ -199,17 +334,17 @@ async function extractFromAnyPage() {
         const pageData = await targetPage.evaluate(() => {
             const results = [];
             
-            // More specific selectors for better filtering
+            // More specific selectors for better filtering - IMPROVED
             const jobSelectors = [
-                // Upwork specific selectors
+                // Upwork find-work page specific selectors
+                'section.air3-card-section.air3-card-hover',  // Main job card container
+                'section[class*="air3-card-section"]',         // Fallback for variations
+                '.air3-card-section',                          // Shorter version
+                // Original selectors as fallback
                 '[data-test="job-tile"]',
                 '[data-ev-label="job_tile"]',
                 '.job-tile',
-                '.air3-card',
-                // Generic job selectors (but more specific)
-                'article[class*="job"]',
-                'div[class*="job-card"]',
-                'a[href*="/jobs/~"][href*="?"]'  // More specific Upwork job URLs
+                'article[class*="job"]'
             ];
             // var to hold found elements
             let foundElements = [];
@@ -249,28 +384,73 @@ async function extractFromAnyPage() {
             const uniqueElements = [...new Set(foundElements)];
             
             uniqueElements.forEach((element, index) => {
-                if (index >= 20) return; // Limit to 20 for better quality
+                if (index >= 15) return; // Limit to 15 for better quality
                 
-                let title = element.textContent?.trim() || '';
-                let url = element.href || '';
-                let className = element.className || '';
-                let tagName = element.tagName || '';
-                
-                // Try to get more context from parent elements
+                // Improved data extraction for job cards
+                let title = '';
+                let url = '';
                 let description = '';
-                const parent = element.closest('div, article, section');
-                if (parent) {
-                    description = parent.textContent?.trim().substring(0, 200) || '';
+                let client = '';
+                let budget = '';
+                
+                // Extract job title - try multiple approaches
+                const titleSelectors = ['h4', 'h3', 'h2', 'h5', '[data-test*="title"]', 'a[href*="/jobs/"]'];
+                for (const selector of titleSelectors) {
+                    const titleEl = element.querySelector(selector);
+                    if (titleEl && titleEl.textContent?.trim()) {
+                        title = titleEl.textContent.trim();
+                        if (titleEl.href) url = titleEl.href;
+                        break;
+                    }
+                }
+                
+                // Fallback - use element's own text if no title found
+                if (!title) {
+                    title = element.textContent?.trim() || '';
+                    url = element.href || '';
+                }
+                
+                // Extract job URL if not found yet
+                if (!url) {
+                    const linkEl = element.querySelector('a[href*="/jobs/"]');
+                    if (linkEl) url = linkEl.href;
+                }
+                
+                // Extract description
+                description = element.textContent?.trim().substring(0, 300) || '';
+                
+                // Extract client name - look for client info
+                const clientEl = element.querySelector('[data-test*="client"], .client-name, [class*="client"]');
+                if (clientEl) {
+                    client = clientEl.textContent?.trim() || '';
+                }
+                
+                // Extract budget - look for price info
+                const budgetEl = element.querySelector('[data-test*="budget"], [class*="budget"], [class*="price"]');
+                if (budgetEl) {
+                    budget = budgetEl.textContent?.trim() || '';
                 }
                 
                 if (title && title.length > 3) {
+                    // Generate truly unique ID with multiple factors
+                    const titleHash = title.split('').reduce((a, b) => {
+                        a = ((a << 5) - a) + b.charCodeAt(0);
+                        return a & a;
+                    }, 0);
+                    
+                    const uniqueId = url && url.includes('/jobs/~') && url.length > 50 ? 
+                        url : 
+                        `job_${Date.now()}_${index}_${Math.abs(titleHash)}_${Math.random().toString(36).substr(2, 5)}`;
+                    
                     results.push({
+                        id: uniqueId,
                         title: title.substring(0, 100),
                         url: url,
                         description: description,
-                        budget: '',
-                        className: className,
-                        tagName: tagName,
+                        client: client,
+                        budget: budget,
+                        className: element.className || '',
+                        tagName: element.tagName || '',
                         extracted_at: new Date().toISOString(),
                         source: 'universal-dom'
                     });
@@ -343,42 +523,26 @@ async function main() {
             extractedData = await extractFromLoggedInChrome();
         }
         
-        // Save results - UPDATED PATH for frontend integration
-        const dataDir = path.join(__dirname, '..', '..', '..', 'backend', 'notification_push', 'data');
-        const outputFile = path.join(dataDir, 'extracted_jobs.json');
-        
-        // Ensure data directory exists
-        await fs.mkdir(dataDir, { recursive: true });
-        
-        await fs.writeFile(outputFile, JSON.stringify(extractedData, null, 2));
+        // Save results directly to database via API
+        await saveJobsToDatabase(extractedData, mode);
         
         // logging success
-        console.log(`✅ Extraction completed:`);
+        console.log(`✅ Extraction completed and saved to database:`);
         if (Array.isArray(extractedData)) {
             console.log(`   📋 Jobs found: ${extractedData.length}`);
         } else {
             console.log(`   📋 Jobs found: ${extractedData.jobs?.length || 0}`);
             console.log(`   📄 Page info: ${extractedData.pageInfo ? 'Yes' : 'No'}`);
         }
-        console.log(`   💾 Saved to: ${outputFile}`);
+        console.log(`   💾 Saved to database via API`);
         
         return extractedData;
         
     } catch (error) {
         console.error('❌ Extraction failed:', error.message);
         
-        // Create empty result to avoid Django 500 error
-        const emptyResult = { jobs: [], pageInfo: { error: error.message } };
-        const dataDir = path.join(__dirname, '..', '..', '..', 'backend', 'notification_push', 'data');
-        const outputFile = path.join(dataDir, 'extracted_jobs.json');
-        
-        try {
-            await fs.mkdir(dataDir, { recursive: true });
-            await fs.writeFile(outputFile, JSON.stringify(emptyResult, null, 2));
-            console.log(`💾 Saved empty result due to error: ${outputFile}`);
-        } catch (writeError) {
-            console.error('❌ Could not save error result:', writeError.message);
-        }
+        // Log error to database via API
+        await saveJobsToDatabase({ jobs: [], pageInfo: { error: error.message } }, mode || 'unknown');
         
         process.exit(1);
     }
