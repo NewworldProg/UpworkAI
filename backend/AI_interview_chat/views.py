@@ -441,8 +441,17 @@ def generate_smart_responses(request):
             logger.info(f"🔍 First few messages: {chat_data['messages'][:3] if chat_data['messages'] else 'None'}")
         
         if not chat_data or not isinstance(chat_data, dict):
+            logger.error(f"Invalid chat data: type={type(chat_data)}, data={chat_data}")
             return Response({
                 'error': 'Invalid chat data provided'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate that we have messages
+        messages = chat_data.get('messages', [])
+        if not messages or not isinstance(messages, list):
+            logger.error(f"No valid messages found: messages={messages}")
+            return Response({
+                'error': 'No valid messages found in chat data'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Initialize AI engine
@@ -460,10 +469,35 @@ def generate_smart_responses(request):
             context=context
         )
         
+        logger.info(f"🎯 AI engine returned {len(smart_responses)} responses")
+        
+        # Ensure we always return at least some responses
         if not smart_responses:
-            return Response({
-                'error': 'Unable to generate smart responses from chat context'
-            }, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+            logger.warning("AI engine returned no responses, generating fallback")
+            # Fallback responses
+            smart_responses = [
+                {
+                    'response': "Thank you for your message. I'd be happy to discuss this project opportunity further.",
+                    'type': 'fallback',
+                    'confidence': 0.50,
+                    'context': 'Fallback professional response',
+                    'topics': ['general']
+                },
+                {
+                    'response': "I believe my skills and experience would be a good fit for your project requirements.",
+                    'type': 'fallback',
+                    'confidence': 0.48,
+                    'context': 'Fallback skills response',
+                    'topics': ['general']
+                },
+                {
+                    'response': "I'm interested in learning more about the specific requirements and timeline for this project.",
+                    'type': 'fallback',
+                    'confidence': 0.45,
+                    'context': 'Fallback inquiry response',
+                    'topics': ['general']
+                }
+            ]
         
         return Response({
             'success': True,

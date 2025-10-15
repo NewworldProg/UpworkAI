@@ -694,23 +694,71 @@ class AIInterviewEngine:
             smart_responses = []
             
             # Generate responses based on different strategies
-            response_strategies = [
-                self._generate_followup_response(messages, topics, conversation_analysis),
-                self._generate_clarification_response(messages, topics),
-                self._generate_expertise_response(messages, topics),
-                self._generate_experience_response(messages, topics),
-                self._generate_project_focused_response(messages, topics, chat_context)
-            ]
+            response_strategies = []
             
-            for strategy_response in response_strategies:
-                if strategy_response and isinstance(strategy_response, dict):
-                    smart_responses.append(strategy_response)
+            # Strategy 1: Followup Response
+            try:
+                followup = self._generate_followup_response(messages, topics, conversation_analysis)
+                if followup:
+                    response_strategies.append(followup)
+                    logger.info(f"✅ Generated followup response")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to generate followup response: {e}")
+            
+            # Strategy 2: Clarification Response
+            try:
+                clarification = self._generate_clarification_response(messages, topics)
+                if clarification:
+                    response_strategies.append(clarification)
+                    logger.info(f"✅ Generated clarification response")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to generate clarification response: {e}")
+            
+            # Strategy 3: Expertise Response
+            try:
+                expertise = self._generate_expertise_response(messages, topics)
+                if expertise:
+                    response_strategies.append(expertise)
+                    logger.info(f"✅ Generated expertise response")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to generate expertise response: {e}")
+            
+            # Strategy 4: Experience Response
+            try:
+                experience = self._generate_experience_response(messages, topics)
+                if experience:
+                    response_strategies.append(experience)
+                    logger.info(f"✅ Generated experience response")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to generate experience response: {e}")
+            
+            # Strategy 5: Project-focused Response
+            try:
+                project_focused = self._generate_project_focused_response(messages, topics, chat_context)
+                if project_focused:
+                    response_strategies.append(project_focused)
+                    logger.info(f"✅ Generated project-focused response")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to generate project-focused response: {e}")
+            
+            # Add fallback responses if we don't have enough
+            if len(response_strategies) < 3:
+                logger.info("Adding fallback responses...")
+                fallback_responses = self._generate_fallback_responses(messages, topics, chat_context)
+                response_strategies.extend(fallback_responses)
+            
+            logger.info(f"🔍 Generated {len(response_strategies)} total responses")
+            
+            logger.info(f"🔍 Generated {len(response_strategies)} total responses")
             
             # Sort by confidence score
-            smart_responses.sort(key=lambda x: x.get('confidence', 0), reverse=True)
+            response_strategies.sort(key=lambda x: x.get('confidence', 0), reverse=True)
             
             # Return top 5 responses
-            return smart_responses[:5]
+            final_responses = response_strategies[:5]
+            logger.info(f"🎯 Returning {len(final_responses)} smart responses")
+            
+            return final_responses
             
         except Exception as e:
             logger.error(f"Error generating smart responses: {str(e)}")
@@ -789,16 +837,35 @@ class AIInterviewEngine:
                 
                 response_text = self.tokenizers['question_generator'].decode(outputs[0], skip_special_tokens=True)
                 # Extract generated part
-                generated_response = response_text[len(self.tokenizers['question_generator'].decode(inputs[0], skip_special_tokens=True)):].strip()
+                input_text = self.tokenizers['question_generator'].decode(inputs[0], skip_special_tokens=True)
+                generated_response = response_text[len(input_text):].strip()
                 
+                # Clean up the generated response
                 if generated_response and len(generated_response) > 10:
-                    return {
-                        'response': generated_response,
-                        'type': 'followup',
-                        'confidence': 0.75,
-                        'context': f"Natural follow-up to: {last_content[:100]}...",
-                        'topics': topics[:3]
-                    }
+                    # Remove any repeated content and fix formatting
+                    lines = generated_response.split('\n')
+                    clean_lines = []
+                    for line in lines:
+                        line = line.strip()
+                        if line and line not in clean_lines and len(line) > 5:
+                            clean_lines.append(line)
+                    
+                    if clean_lines:
+                        final_response = clean_lines[0]  # Take first clean line
+                        # Ensure proper sentence ending
+                        if not final_response.endswith('.') and not final_response.endswith('?') and not final_response.endswith('!'):
+                            if '?' in final_response:
+                                final_response = final_response.split('?')[0] + '?'
+                            else:
+                                final_response += '.'
+                        
+                        return {
+                            'response': final_response,
+                            'type': 'followup',
+                            'confidence': 0.75,
+                            'context': f"Natural follow-up to: {last_content[:100]}...",
+                            'topics': topics[:3]
+                        }
             
             return None
             
@@ -935,6 +1002,64 @@ class AIInterviewEngine:
             logger.error(f"Error generating project-focused response: {str(e)}")
             return None
     
+    def _generate_fallback_responses(self, messages, topics, chat_context):
+        """Generate fallback responses when primary strategies fail"""
+        fallback_responses = []
+        
+        try:
+            # Generic professional responses
+            generic_responses = [
+                {
+                    'response': "I'd be happy to discuss this further and provide more details about my background.",
+                    'type': 'generic',
+                    'confidence': 0.60,
+                    'context': 'Generic professional response',
+                    'topics': topics[:2] if topics else ['general']
+                },
+                {
+                    'response': "Thank you for considering my application. I believe my skills align well with your project requirements.",
+                    'type': 'generic',
+                    'confidence': 0.58,
+                    'context': 'Professional closing response',
+                    'topics': topics[:2] if topics else ['general']
+                },
+                {
+                    'response': "I'm excited about the opportunity to contribute to this project and would welcome the chance to discuss it further.",
+                    'type': 'generic',
+                    'confidence': 0.55,
+                    'context': 'Enthusiasm and next steps',
+                    'topics': topics[:2] if topics else ['general']
+                }
+            ]
+            
+            # Topic-specific responses if we have topics
+            if topics:
+                topic_responses = [
+                    {
+                        'response': f"I have relevant experience with {topics[0]} that would be valuable for this project.",
+                        'type': 'topic_specific',
+                        'confidence': 0.65,
+                        'context': f'Topic-specific experience with {topics[0]}',
+                        'topics': topics[:2]
+                    },
+                    {
+                        'response': f"My expertise in {topics[0]} includes both practical implementation and best practices.",
+                        'type': 'topic_specific',
+                        'confidence': 0.62,
+                        'context': f'Expertise demonstration in {topics[0]}',
+                        'topics': topics[:2]
+                    }
+                ]
+                fallback_responses.extend(topic_responses)
+            
+            fallback_responses.extend(generic_responses)
+            
+            return fallback_responses[:3]  # Return max 3 fallback responses
+            
+        except Exception as e:
+            logger.error(f"Error generating fallback responses: {str(e)}")
+            return []
+
     def _find_relevant_chat_messages(self, question: str, messages: List[Dict]) -> List[Dict]:
         """Find messages relevant to the interview question"""
         try:
