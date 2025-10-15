@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     'ai_cover_letters',  # New AI cover letter app
     'notification_push',  # NotificationPushBrowser app (Django integration)
     'upwork_messages',  # New Upwork messages/chat app
+    'AI_interview_chat',  # AI Interview Chat system with Hugging Face models
 ]
 
 MIDDLEWARE = [

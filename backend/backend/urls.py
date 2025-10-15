@@ -22,6 +22,7 @@ urlpatterns = [
     path('api/ai/', include('ai_cover_letters.urls')),  # AI Cover Letters endpoints
     path('api/notification-push/', include('notification_push.urls')),  # NotificationPush endpoints
     path('api/messages/', include('upwork_messages.urls')),  # Upwork Messages and AI Chat endpoints
+    path('api/interview/', include('AI_interview_chat.urls')),  # AI Interview Chat system endpoints
     # Swagger/OpenAPI endpoints
     path('swagger(<format>\.json|\.yaml)', schema_view.without_ui(cache_timeout=0), name='schema-json'),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),

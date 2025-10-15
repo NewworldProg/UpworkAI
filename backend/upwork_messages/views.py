@@ -568,15 +568,31 @@ def analyze_active_chat(request):
         # Run active chat scraper
         cmd_args = ['node', chat_script]
         
-        result = subprocess.run(
-            cmd_args,
-            cwd=scraper_dir,
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            errors='replace',
-            timeout=60  # Povećano na 60 sekundi
-        )
+        logger.info(f"Running scraper command: {' '.join(cmd_args)}")
+        logger.info(f"Working directory: {scraper_dir}")
+        
+        try:
+            result = subprocess.run(
+                cmd_args,
+                cwd=scraper_dir,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=120  # Povećano na 120 sekundi (2 minuta)
+            )
+        except subprocess.TimeoutExpired as e:
+            logger.error(f"❌ Scraper timeout after 120 seconds")
+            return Response({
+                'success': False,
+                'error': 'Chat analysis timed out after 2 minutes. Please try again.'
+            }, status=status.HTTP_408_REQUEST_TIMEOUT)
+        except Exception as e:
+            logger.error(f"❌ Scraper execution error: {str(e)}")
+            return Response({
+                'success': False,
+                'error': f'Scraper execution failed: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         if result.returncode == 0:
             logger.info("✅ Active chat analysis completed successfully")
@@ -619,6 +635,49 @@ def analyze_active_chat(request):
                     # Generate AI suggestions based on chat content
                     suggestions = generate_ai_suggestions(chat_data)
                     
+                    # 🤖 AI INTERVIEW INTEGRATION 🤖
+                    # Send chat data to AI Interview Chat system for context ingestion
+                    interview_context_id = None
+                    ai_interview_error = None
+                    try:
+                        from AI_interview_chat.views import ingest_chat_context
+                        from django.test import RequestFactory
+                        import json
+                        
+                        # Create a fake request to call ingest_chat_context
+                        factory = RequestFactory()
+                        interview_request = factory.post('/api/interview/ingest-chat-context/', 
+                                                       data=json.dumps(chat_data), 
+                                                       content_type='application/json')
+                        interview_request.data = chat_data
+                        
+                        logger.info(f"Calling AI Interview ingest_chat_context...")
+                        logger.info(f"Chat data keys: {list(chat_data.keys())}")
+                        logger.info(f"Messages count: {len(chat_data.get('messages', []))}")
+                        
+                        # Call AI interview context ingestion
+                        interview_response = ingest_chat_context(interview_request)
+                        logger.info(f"AI Interview response status: {interview_response.status_code}")
+                        logger.info(f"AI Interview response data: {interview_response.data}")
+                        
+                        if interview_response.status_code in [200, 201]:
+                            interview_data = interview_response.data
+                            if interview_data.get('success'):
+                                interview_context_id = interview_data.get('data', {}).get('context_id')
+                                logger.info(f"✅ Chat context ingested to AI Interview system: {interview_context_id}")
+                            else:
+                                ai_interview_error = interview_data.get('error', 'Unknown error from AI Interview system')
+                                logger.warning(f"⚠️ AI Interview system returned error: {ai_interview_error}")
+                        else:
+                            ai_interview_error = f"HTTP {interview_response.status_code}"
+                            logger.warning(f"⚠️ AI Interview HTTP error: {ai_interview_error}")
+                        
+                    except Exception as e:
+                        ai_interview_error = str(e)
+                        logger.warning(f"⚠️ Failed to ingest chat context to AI Interview system: {ai_interview_error}")
+                        import traceback
+                        logger.warning(f"Traceback: {traceback.format_exc()}")
+                    
                     return Response({
                         'success': True,
                         'message': 'Active chat analyzed successfully',
@@ -627,7 +686,16 @@ def analyze_active_chat(request):
                             'suggestions': suggestions,
                             'messageCount': len(chat_data.get('messages', [])),
                             'conversationId': chat_data.get('conversationId'),
-                            'participants': chat_data.get('participants', [])
+                            'participants': chat_data.get('participants', []),
+                            # 🎯 AI Interview Integration
+                            'aiInterview': {
+                                'contextIngested': interview_context_id is not None,
+                                'contextId': interview_context_id,
+                                'canCreateInterview': interview_context_id is not None,
+                                'interviewApiBase': '/api/interview/',
+                                'error': ai_interview_error if ai_interview_error else None,
+                                'debug': f'interview_context_id={interview_context_id}, ai_interview_error={ai_interview_error}'
+                            }
                         }
                     })
                 else:
@@ -732,3 +800,84 @@ def generate_ai_suggestions(chat_data):
     except Exception as e:
         logger.error(f"Error generating AI suggestions: {str(e)}")
         return [f"Error generating suggestions: {str(e)}"]
+
+# ========= 🎯 AI Interview Integration =========
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def create_interview_from_active_chat(request):
+    """
+    Create AI interview session directly from active chat analysis
+    """
+    try:
+        context_id = request.data.get('context_id')
+        
+        # If no context_id provided, try to get the latest one
+        if not context_id:
+            try:
+                from AI_interview_chat.models import ChatContext
+                latest_context = ChatContext.objects.filter(
+                    is_active=True
+                ).order_by('-created_at').first()
+                
+                if latest_context:
+                    context_id = str(latest_context.context_id)
+                else:
+                    return Response({
+                        'success': False,
+                        'error': 'No chat context found. Please run chat analysis first.'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            except Exception as e:
+                return Response({
+                    'success': False,
+                    'error': 'context_id is required or unable to find latest context'
+                }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Import AI Interview views
+        from AI_interview_chat.views import create_interview_session
+        from django.test import RequestFactory
+        
+        # Prepare interview configuration
+        interview_config = request.data.get('config', {})
+        interview_data = {
+            'context_id': context_id,
+            'config': {
+                'type': interview_config.get('type', 'general'),
+                'difficulty': interview_config.get('difficulty', 'medium'),
+                'num_questions': interview_config.get('num_questions', 5),
+                'candidate_name': interview_config.get('candidate_name', '')
+            }
+        }
+        
+        # Create fake request for interview creation
+        factory = RequestFactory()
+        interview_request = factory.post('/api/interview/sessions/create/', 
+                                       data=interview_data, 
+                                       content_type='application/json')
+        interview_request.data = interview_data
+        
+        # Call AI interview session creation
+        interview_response = create_interview_session(interview_request)
+        
+        if interview_response.status_code == 201:
+            # Success - return interview session data
+            return Response({
+                'success': True,
+                'message': 'AI Interview session created from active chat',
+                'data': interview_response.data.get('data', {}),
+                'next_action': 'start_interview',
+                'session_id': interview_response.data.get('data', {}).get('session_id')
+            })
+        else:
+            # Error from interview creation
+            return Response({
+                'success': False,
+                'error': 'Failed to create interview session',
+                'details': interview_response.data
+            }, status=interview_response.status_code)
+        
+    except Exception as e:
+        logger.error(f"Error creating interview from active chat: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Failed to create interview: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

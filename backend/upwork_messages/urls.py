@@ -18,5 +18,6 @@ urlpatterns = [
     path('ai/suggest-replies/', views.suggest_ai_replies, name='suggest_ai_replies_global'),
     path('ai/generate-response/', views.generate_ai_response, name='generate_ai_response'),
     path('ai/analyze-active-chat/', views.analyze_active_chat, name='analyze_active_chat'),
+    path('ai/create-interview-from-chat/', views.create_interview_from_active_chat, name='create_interview_from_active_chat'),
     path('chrome/open-message/', views.open_message_in_chrome, name='open_message_in_chrome'),
 ]
